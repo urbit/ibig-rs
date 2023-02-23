@@ -62,9 +62,11 @@ impl Buffer {
     /// Makes sure that the capacity is compact.
     #[inline]
     pub(crate) fn shrink(&mut self) {
-        if self.capacity() > Buffer::max_compact_capacity(self.len()) {
-            self.reallocate(self.len());
-        }
+        // We don't want to shrink anything allocated with _stack
+        //
+        // if self.capacity() > Buffer::max_compact_capacity(self.len()) {
+        //     self.reallocate(self.len());
+        // }
     }
 
     fn reallocate_stack(&mut self, stack: &mut dyn Stack, num_words: usize) {

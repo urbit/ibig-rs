@@ -527,6 +527,9 @@ impl_add_ibig_primitive!(i128);
 impl_add_ibig_primitive!(isize);
 
 impl UBig {
+    // Practially, addition will always be in-place if used with brand-new UBigs because they're
+    // given at least 2 words of extra capacity.  However, this supports UBigs which have already
+    // been expanded through other operations.
     #[inline]
     pub fn add_stack(stack: &mut dyn Stack, lhs: UBig, rhs: UBig) -> UBig {
         match (lhs.into_repr(), rhs.into_repr()) {
@@ -615,6 +618,12 @@ impl UBig {
             buffer.push_may_reallocate(1);
         }
         buffer.into()
+    }
+
+    // Subtraction is always in-place
+    #[inline]
+    pub fn sub_stack(_stack: &mut dyn Stack, lhs: UBig, rhs: UBig) -> UBig {
+        lhs - rhs
     }
 
     /// Subtract two `Word`s.
