@@ -5,6 +5,7 @@ use crate::{
     buffer::Buffer,
     error::OutOfBoundsError,
     ibig::IBig,
+    memory::Stack,
     primitive::{self, PrimitiveSigned, PrimitiveUnsigned, WORD_BITS, WORD_BYTES},
     sign::Sign::*,
     ubig::{Repr::*, UBig},
@@ -29,6 +30,29 @@ impl Default for IBig {
 }
 
 impl UBig {
+    #[inline]
+    pub fn from_le_bytes_stack(stack: &mut dyn Stack, bytes: &[u8]) -> UBig {
+        if bytes.len() <= WORD_BYTES {
+            // fast path
+            UBig::from_word(primitive::word_from_le_bytes_partial(bytes))
+        } else {
+            UBig::from_le_bytes_large_stack(stack, bytes)
+        }
+    }
+
+    fn from_le_bytes_large_stack(stack: &mut dyn Stack, bytes: &[u8]) -> UBig {
+        debug_assert!(bytes.len() > WORD_BYTES);
+        let mut buffer = Buffer::allocate_stack(stack, (bytes.len() - 1) / WORD_BYTES + 1);
+        let mut chunks = bytes.chunks_exact(WORD_BYTES);
+        for chunk in &mut chunks {
+            buffer.push(Word::from_le_bytes(chunk.try_into().unwrap()));
+        }
+        if !chunks.remainder().is_empty() {
+            buffer.push(primitive::word_from_le_bytes_partial(chunks.remainder()));
+        }
+        buffer.into()
+    }
+
     /// Construct from little-endian bytes.
     ///
     /// # Examples
@@ -89,6 +113,31 @@ impl UBig {
             buffer.push(primitive::word_from_be_bytes_partial(chunks.remainder()));
         }
         buffer.into()
+    }
+
+    pub fn to_le_bytes_stack<'a>(&'a self) -> &'a [u8] {
+        match self.repr() {
+            Small(x) => {
+                let skip_bytes = x.leading_zeros() as usize / 8;
+                unsafe {
+                    core::slice::from_raw_parts(
+                        x as *const u64 as *const u8,
+                        WORD_BYTES - skip_bytes,
+                    )
+                }
+            }
+            Large(buffer) => {
+                let n = buffer.len();
+                let last = buffer[n - 1];
+                let skip_last_bytes = last.leading_zeros() as usize / 8;
+                unsafe {
+                    core::slice::from_raw_parts(
+                        buffer.as_ptr() as *const u8,
+                        n * WORD_BYTES - skip_last_bytes,
+                    )
+                }
+            }
+        }
     }
 
     /// Return little-endian bytes.
@@ -502,6 +551,20 @@ impl TryFrom<&IBig> for UBig {
 }
 
 impl UBig {
+    #[inline]
+    pub(crate) fn from_unsigned_stack<T>(stack: &mut dyn Stack, x: T) -> UBig
+    where
+        T: PrimitiveUnsigned,
+    {
+        match x.try_into() {
+            Ok(w) => UBig::from_word(w),
+            Err(_) => {
+                let repr = x.to_le_bytes();
+                UBig::from_le_bytes_stack(stack, repr.as_ref())
+            }
+        }
+    }
+
     /// Convert an unsigned primitive to [UBig].
     #[inline]
     pub(crate) fn from_unsigned<T>(x: T) -> UBig

@@ -9,6 +9,10 @@ pub(crate) struct MemoryAllocation {
     start: *mut u8,
 }
 
+pub trait Stack {
+    unsafe fn alloc_layout(&mut self, layout: Layout) -> *mut u64;
+}
+
 /// Chunk of memory.
 pub(crate) struct Memory<'a> {
     /// Start pointer.
@@ -20,6 +24,24 @@ pub(crate) struct Memory<'a> {
 }
 
 impl MemoryAllocation {
+    pub(crate) fn new_stack(stack: &mut dyn Stack, layout: Layout) -> MemoryAllocation {
+        let start = if layout.size() == 0 {
+            // We should use layout.dangling(), but that is unstable.
+            layout.align() as *mut u8
+        } else if layout.size() > isize::MAX as usize {
+            panic_out_of_memory()
+        } else {
+            // Safe because size is non-zero.
+            let ptr = unsafe { stack.alloc_layout(layout) as *mut u8 };
+            if ptr.is_null() {
+                panic_out_of_memory();
+            }
+            ptr
+        };
+
+        MemoryAllocation { layout, start }
+    }
+
     /// Allocate memory.
     pub(crate) fn new(layout: Layout) -> MemoryAllocation {
         let start = if layout.size() == 0 {

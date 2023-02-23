@@ -1,10 +1,11 @@
 //! Word buffer.
 
-use crate::{arch::word::Word, ubig::UBig};
+use crate::{arch::word::Word, memory, memory::Stack, ubig::UBig};
 
 use alloc::vec::Vec;
 use core::{
     iter,
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
 };
 
@@ -14,10 +15,23 @@ use core::{
 /// in with Words, and then converting to UBig.
 ///
 /// If its capacity is exceeded, the `Buffer` will panic.
+///
+/// ManuallyDrop so that we don't try to deallocate the buffer when it goes out of scope.
 #[derive(Debug, Eq, Hash, PartialEq)]
-pub(crate) struct Buffer(Vec<Word>);
+pub(crate) struct Buffer(ManuallyDrop<Vec<Word>>);
 
 impl Buffer {
+    pub(crate) fn allocate_stack(stack: &mut dyn Stack, num_words: usize) -> Buffer {
+        if num_words > Buffer::MAX_CAPACITY {
+            UBig::panic_number_too_large();
+        }
+        let capacity = Buffer::default_capacity(num_words);
+        unsafe {
+            let ptr = stack.alloc_layout(memory::array_layout::<Word>(capacity));
+            Buffer(ManuallyDrop::new(Vec::from_raw_parts(ptr, 0, capacity)))
+        }
+    }
+
     /// Creates a `Buffer` with at least specified capacity.
     ///
     /// It leaves some extra space for future growth.
@@ -25,7 +39,15 @@ impl Buffer {
         if num_words > Buffer::MAX_CAPACITY {
             UBig::panic_number_too_large();
         }
-        Buffer(Vec::with_capacity(Buffer::default_capacity(num_words)))
+        Buffer(ManuallyDrop::new(Vec::with_capacity(
+            Buffer::default_capacity(num_words),
+        )))
+    }
+
+    pub(crate) fn ensure_capacity_stack(&mut self, stack: &mut dyn Stack, num_words: usize) {
+        if num_words > self.capacity() {
+            self.reallocate_stack(stack, num_words);
+        }
     }
 
     /// Ensure there is enough capacity in the buffer for `num_words`. Will reallocate if there is
@@ -43,6 +65,13 @@ impl Buffer {
         if self.capacity() > Buffer::max_compact_capacity(self.len()) {
             self.reallocate(self.len());
         }
+    }
+
+    fn reallocate_stack(&mut self, stack: &mut dyn Stack, num_words: usize) {
+        assert!(num_words >= self.len());
+        let mut new_buffer = Buffer::allocate_stack(stack, num_words);
+        new_buffer.clone_from(self);
+        *self = new_buffer
     }
 
     /// Change capacity to store `num_words` plus some extra space for future growth.
@@ -72,6 +101,12 @@ impl Buffer {
     pub(crate) fn push(&mut self, word: Word) {
         assert!(self.len() < self.capacity());
         self.0.push(word);
+    }
+
+    #[inline]
+    pub(crate) fn push_may_reallocate_stack(&mut self, stack: &mut dyn Stack, word: Word) {
+        self.ensure_capacity_stack(stack, self.len() + 1);
+        self.push(word);
     }
 
     /// Append a Word and reallocate if necessary.

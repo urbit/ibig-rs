@@ -1,3 +1,22 @@
+# This fork
+
+This modifies ibig to accept a custom allocator for some operations.
+Specifically, any function which ends in `_stack` will never allocate
+except by calling the passed-in allocator with trait `Stack`.  This
+allocator is assumed to *not* require deallocation, so we leak
+everything we allocate in that way.
+
+Further, we leak *all* allocations of multi-word `UBig`s, even those created by
+non-`_stack` functions.  This means that this repo *must* be used
+exclusively with `_stack` functions (or others that you know do not
+allocate).  To allow easier integration of future upstream changes, we
+do not modify existing functions where possible, even though they are no
+longer safe to use.
+
+It is recommended to use
+[assert-no-alloc](https://github.com/Windfisch/rust-assert-no-alloc) to
+verify that no allocations happen.
+
 # ibig
 
 [![crate](https://img.shields.io/crates/v/ibig.svg)](https://crates.io/crates/ibig)

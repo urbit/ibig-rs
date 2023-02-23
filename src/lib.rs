@@ -63,6 +63,7 @@
 
 extern crate alloc;
 
+pub use crate::memory::Stack;
 pub use crate::{ibig::IBig, ubig::UBig};
 
 mod add;
